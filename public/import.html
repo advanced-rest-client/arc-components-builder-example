@@ -45145,7 +45145,10 @@ Custom property | Description | Default
       </iron-collapse>
     </template>
     <template is="dom-if" if="[[!item.isEnum]]" restamp="">
-      <paper-autocomplete open-on-focus="" on-query="_queryHeaderName" on-selected="_onHeaderNameSelected"></paper-autocomplete>
+      <paper-autocomplete class="name-autocomplete" open-on-focus="" on-query="_queryHeaderName" on-selected="_onHeaderNameSelected"></paper-autocomplete>
+    </template>
+    <template is="dom-if" if="[[_valueInput]]" restamp="true">
+      <paper-autocomplete class="value-autocomplete" open-on-focus="" on-selected="_onHeaderValueSelected" target="[[_valueInput]]" position-target="[[_valueInput]]" dynamic-align="" vertical-align="top" horizontal-align="left" vertical-offset="26" source="[[valueSuggestions]]"></paper-autocomplete>
     </template>
   </template>
   <script>
@@ -45173,8 +45176,10 @@ Custom property | Description | Default
         /**
          * A model item to use to render a form element.
          */
-        item: Object,
-
+        item: {
+          type: Object,
+          observer: '_modelChanged'
+        },
         /**
          * The name of this element.
          * Ovverides `Polymer.IronFormElementBehavior` name property to notify
@@ -45208,7 +45213,14 @@ Custom property | Description | Default
         narrow: {
           type: Boolean,
           reflectToAttribute: true
-        }
+        },
+        /**
+         * List of value suggestion for current header. The list is updated
+         * automatically when header name changes
+         */
+        valueSuggestions: Array,
+        // Reference to header value input.
+        _valueInput: Object
       },
 
       attached: function() {
@@ -45223,6 +45235,17 @@ Custom property | Description | Default
 
       _detachListeners: function(node) {
         this.unlisten(node, 'request-header-changed', '_headerChangeHandler');
+      },
+
+      _modelChanged: function(model) {
+        if (model && !model.isEnum && !this._valueInput) {
+          Polymer.dom.flush();
+          this._valueInput = this.$$('.value-change-input');
+        }
+      },
+
+      ready: function() {
+        this._modelChanged(this.item);
       },
 
       // Opens the documentation for the item (if exists).
@@ -45278,6 +45301,7 @@ Custom property | Description | Default
       _updateHeaderInfo: function(name) {
         if (!name) {
           this._updateCustomHeaderMeta();
+          this._updateValueAutocomplete();
           return;
         }
         var info = this._queryHeaderNameSuggestions(name);
@@ -45288,6 +45312,9 @@ Custom property | Description | Default
           item = {};
         }
         this._updateCustomHeaderMeta(item.desc, item.example);
+        if (!this.item.isEnum) {
+          this._updateValueAutocomplete(info);
+        }
       },
       /**
        * Updates headers metadata information after retrieving it from the
@@ -45348,11 +45375,19 @@ Custom property | Description | Default
       },
 
       /**
-       * A handler called when the user selects a suggestion.
+       * A handler called when the user selects a name suggestion.
        */
       _onHeaderNameSelected: function(e) {
         this.set('name', e.detail.value);
         this.$$('.name-change-input').fire('bind-value-changed');
+        this.$$('.value-change-input').focus();
+      },
+      /**
+       * A handler called when the user selects a value suggestion.
+       */
+      _onHeaderValueSelected: function(e) {
+        this.set('value', e.detail.value);
+        this.$$('.value-change-input').fire('bind-value-changed');
       },
       /**
        * Queries DOM (using event bus) for an element that support a header.
@@ -45412,6 +45447,33 @@ Custom property | Description | Default
         e.preventDefault();
         this.set('value', e.detail.value);
         this.$$('.value-change-input').fire('bind-value-changed');
+      },
+      /**
+       * Updates header value autocomplete if header definition contains
+       * the `autocomplete` entry. It only sets the autocomplete value when
+       * only one header has been found for current input.
+       *
+       * @param {Array<Object>} headers List of received headers from headers query
+       */
+      _updateValueAutocomplete: function(headers) {
+        if (!headers || !headers.length) {
+          this.valueSuggestions = undefined;
+          return;
+        } else {
+
+        }
+        var header;
+        for (var i = 0, len = headers.length; i < len; i++) {
+          if (headers[i].key.toLowerCase() === this.name.toLowerCase()) {
+            header = headers[i];
+            break;
+          }
+        }
+        if (header) {
+          this.valueSuggestions = header.autocomplete;
+        } else {
+          this.valueSuggestions = undefined;
+        }
       }
     });
   })();
@@ -45513,7 +45575,7 @@ Custom property | Description | Default
     <div class="add-action-container">
       <paper-button class="action-button" on-tap="add" hidden$="[[disallowCustom]]">Add header</paper-button>
     </div>
-    <arc-definitions></arc-definitions>
+    <arc-definitions load-on-demand=""></arc-definitions>
   </template>
   <script>
   (function() {
@@ -45664,7 +45726,7 @@ Custom property | Description | Default
         var headers = this.headersToJSON(value);
         if (!headers || !headers.length) {
           this._internalValueChange = true;
-          this.set('model', []);
+          this.set('model', [this.createModel()]);
           this._internalValueChange = false;
           return;
         }
